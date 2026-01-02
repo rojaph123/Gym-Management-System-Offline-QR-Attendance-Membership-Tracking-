@@ -19,6 +19,7 @@ import { useApp, Member } from "@/context/AppContext";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Card } from "@/components/Card";
+import { SessionTypeModal } from "@/components/SessionTypeModal";
 import { Spacing, BorderRadius } from "@/constants/theme";
 
 const NO_QR_RESET_DELAY = 3000;
@@ -31,6 +32,8 @@ export default function ScanQRScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [scannedMember, setScannedMember] = useState<Member | null>(null);
   const [showResult, setShowResult] = useState(false);
+  const [showSessionModal, setShowSessionModal] = useState(false);
+  const [sessionModalType, setSessionModalType] = useState<"member_expired" | "walkin" | null>(null);
   const [lastScanTime, setLastScanTime] = useState(0);
   const [noQRDetected, setNoQRDetected] = useState(true);
   const soundRef = useRef<Audio.Sound | null>(null);
@@ -156,18 +159,24 @@ export default function ScanQRScreen() {
 
   const handlePaySession = () => {
     if (scannedMember) {
-      paySession(scannedMember.id, true);
+      // Auto-apply the correct rate based on member's membership_type
+      const isSenior = scannedMember.membership_type === "senior";
+      void paySession(scannedMember.id, true, isSenior);
       playBeep();
-      Alert.alert("Success", "Session payment recorded and attendance logged!");
+      const amount =
+        isSenior ? priceSettings.session_member_senior : priceSettings.session_member;
+      Alert.alert(
+        "Success",
+        `Session payment recorded. Amount: ₱${amount}\nAttendance logged!`
+      );
       setShowResult(false);
       setScannedMember(null);
     }
   };
 
-  const handleWalkIn = () => {
-    paySession(0, false);
-    playBeep();
-    Alert.alert("Success", `Walk-in session recorded. Amount: P${priceSettings.session_nonmember}`);
+  const handleWalkInSession = () => {
+    setSessionModalType("walkin");
+    setShowSessionModal(true);
   };
 
   const handleClose = () => {
@@ -175,6 +184,35 @@ export default function ScanQRScreen() {
     setScannedMember(null);
     setNoQRDetected(true);
   };
+
+  const handleSessionTypeSelect = useCallback(
+    (option: { id: string; isSenior?: boolean; price: number }) => {
+      const isSenior = option.isSenior || false;
+
+      if (sessionModalType === "member_expired" && scannedMember) {
+        void paySession(scannedMember.id, true, isSenior);
+        playBeep();
+        const amount =
+          isSenior ? priceSettings.session_member_senior : priceSettings.session_member;
+        Alert.alert(
+          "Success",
+          `Session payment recorded. Amount: ₱${amount}\nAttendance logged!`
+        );
+        setShowResult(false);
+        setScannedMember(null);
+      } else if (sessionModalType === "walkin") {
+        void paySession(0, false, isSenior);
+        playBeep();
+        const amount =
+          isSenior ? priceSettings.session_nonmember_senior : priceSettings.session_nonmember;
+        Alert.alert("Success", `Walk-in session recorded. Amount: ₱${amount}`);
+      }
+
+      setShowSessionModal(false);
+      setSessionModalType(null);
+    },
+    [sessionModalType, scannedMember, paySession, priceSettings, playBeep]
+  );
 
   const openSettings = async () => {
     if (Platform.OS !== "web") {
@@ -243,12 +281,12 @@ export default function ScanQRScreen() {
             Or record a walk-in session:
           </ThemedText>
           <Pressable
-            onPress={handleWalkIn}
+            onPress={handleWalkInSession}
             style={[styles.walkInButton, { backgroundColor: theme.success }]}
           >
             <Feather name="user-plus" size={20} color="#FFFFFF" />
             <ThemedText style={{ color: "#FFFFFF", fontWeight: "600" }}>
-              Walk-in Session (P{priceSettings.session_nonmember})
+              Walk-in Session
             </ThemedText>
           </Pressable>
         </View>
@@ -278,12 +316,12 @@ export default function ScanQRScreen() {
             Or record a walk-in session:
           </ThemedText>
           <Pressable
-            onPress={handleWalkIn}
+            onPress={handleWalkInSession}
             style={[styles.walkInButton, { backgroundColor: theme.primary }]}
           >
             <Feather name="user-plus" size={20} color="#FFFFFF" />
             <ThemedText style={{ color: "#FFFFFF", fontWeight: "600" }}>
-              Walk-in Session (P{priceSettings.session_nonmember})
+              Walk-in Session
             </ThemedText>
           </Pressable>
         </View>
@@ -323,7 +361,7 @@ export default function ScanQRScreen() {
         </ThemedText>
 
         <Pressable
-          onPress={handleWalkIn}
+          onPress={handleWalkInSession}
           style={[styles.walkInFloating, { backgroundColor: theme.backgroundDefault }]}
         >
           <Feather name="user" size={18} color={theme.text} />
@@ -409,6 +447,67 @@ export default function ScanQRScreen() {
           </Card>
         </View>
       ) : null}
+
+      <SessionTypeModal
+        visible={showSessionModal}
+        onClose={() => {
+          setShowSessionModal(false);
+          setSessionModalType(null);
+        }}
+        onSelect={handleSessionTypeSelect}
+        title={
+          sessionModalType === "member_expired"
+            ? "Session Type"
+            : "Walk-in Session Type"
+        }
+        memberName={
+          sessionModalType === "member_expired" && scannedMember
+            ? `${scannedMember.firstname} ${scannedMember.lastname}`
+            : undefined
+        }
+        defaultOptionId={
+          sessionModalType === "member_expired" && scannedMember
+            ? scannedMember.membership_type === "senior"
+              ? "member_senior"
+              : "member"
+            : undefined
+        }
+        options={
+          sessionModalType === "member_expired"
+            ? [
+                {
+                  id: "member",
+                  label: "Member",
+                  subtitle: "Regular Member Rate",
+                  price: priceSettings.session_member,
+                  isSenior: false,
+                },
+                {
+                  id: "member_senior",
+                  label: "Senior Member",
+                  subtitle: "Senior Member Rate",
+                  price: priceSettings.session_member_senior,
+                  isSenior: true,
+                },
+              ]
+            : [
+                {
+                  id: "nonmember",
+                  label: "Regular Walk-in",
+                  subtitle: "Non-Member Rate",
+                  price: priceSettings.session_nonmember,
+                  isSenior: false,
+                },
+                {
+                  id: "nonmember_senior",
+                  label: "Senior Walk-in",
+                  subtitle: "Senior Non-Member Rate",
+                  price: priceSettings.session_nonmember_senior,
+                  isSenior: true,
+                },
+              ]
+        }
+      />
     </View>
   );
 }

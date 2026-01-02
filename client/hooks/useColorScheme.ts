@@ -1,5 +1,7 @@
 import { useColorScheme as useRNColorScheme } from 'react-native';
+import { useApp } from '@/context/AppContext';
 
 export function useColorScheme() {
-  return useRNColorScheme() ?? 'dark';
+  const { isDarkMode } = useApp();
+  return isDarkMode ? 'dark' : 'light';
 }

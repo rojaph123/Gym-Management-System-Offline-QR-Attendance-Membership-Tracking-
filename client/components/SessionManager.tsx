@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, ReactNode, useCallback } from "react";
-import { AppState, Pressable, Text, View, Modal } from "react-native";
+import { AppState, Pressable, Text, View, Modal, PanResponder, GestureResponderEvent } from "react-native";
 import { useNavigation, CommonActions } from "@react-navigation/native";
 import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
@@ -15,8 +15,8 @@ export default function SessionManager({ children }: { children: ReactNode }) {
 
   const idleTimer = useRef<NodeJS.Timeout | null>(null);
   const countdownTimer = useRef<NodeJS.Timeout | null>(null);
+  const appStateSubscription = useRef<any>(null);
 
-  
   const [showModal, setShowModal] = useState(false);
   const [countdown, setCountdown] = useState(COUNTDOWN_SECONDS);
 
@@ -66,14 +66,40 @@ export default function SessionManager({ children }: { children: ReactNode }) {
     }, IDLE_TIME);
   }, [isAuthenticated, timeoutDisabled, startCountdown]);
 
-  /** App state listener */
+  /** Handle user interaction - reset idle timer */
+  const handleUserInteraction = useCallback(() => {
+    if (!isAuthenticated || timeoutDisabled) return;
+    
+    // Only reset if modal is not showing (user is actively using app)
+    if (!showModal) {
+      resetIdleTimer();
+    }
+  }, [isAuthenticated, timeoutDisabled, showModal, resetIdleTimer]);
+
+  /** App state listener - handle background/foreground transitions */
   useEffect(() => {
+    if (!isAuthenticated) return;
+
     const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") resetIdleTimer();
+      console.log('[SessionManager] AppState changed:', state);
+      
+      if (state === "background") {
+        // App is going to background - stop the idle timer
+        if (idleTimer.current) clearTimeout(idleTimer.current);
+        if (countdownTimer.current) clearInterval(countdownTimer.current);
+        setShowModal(false);
+      } else if (state === "active") {
+        // App is coming back to foreground - require re-authentication
+        console.log('[SessionManager] App returned from background - forcing PIN screen');
+        safeLogout();
+      }
     });
 
-    return () => subscription.remove();
-  }, [resetIdleTimer]);
+    appStateSubscription.current = subscription;
+    return () => {
+      subscription.remove();
+    };
+  }, [isAuthenticated, safeLogout]);
 
   /** Start timer when logged in */
   useEffect(() => {
@@ -102,7 +128,11 @@ export default function SessionManager({ children }: { children: ReactNode }) {
   };
 
   return (
-    <>
+    <Pressable 
+      style={{ flex: 1 }} 
+      onPress={handleUserInteraction}
+      onLongPress={handleUserInteraction}
+    >
       {children}
 
       <Modal visible={showModal} transparent animationType="fade">
@@ -153,7 +183,7 @@ export default function SessionManager({ children }: { children: ReactNode }) {
               <Pressable
                 onPress={handleStay}
                 style={{
-                  backgroundColor: "#1976d2",
+                  backgroundColor: "#d21919ff",
                   paddingHorizontal: 25,
                   paddingVertical: 10,
                   borderRadius: 8,
@@ -165,6 +195,6 @@ export default function SessionManager({ children }: { children: ReactNode }) {
           </View>
         </BlurView>
       </Modal>
-    </>
+    </Pressable>
   );
 }

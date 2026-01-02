@@ -1,18 +1,20 @@
 import React, { useMemo, useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable, Image, Alert, TextInput, Modal } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, Image, Alert, TextInput, Modal, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRoute, useNavigation, RouteProp } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import * as ImagePicker from "expo-image-picker";
 import { useHeaderHeight } from "@react-navigation/elements";
 
 import { useTheme } from "@/hooks/useTheme";
-import { useApp } from "@/context/AppContext";
+import { useApp, Member } from "@/context/AppContext";
 import { ThemedText } from "@/components/ThemedText";
 import { Card } from "@/components/Card";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
+import { Calendar } from "react-native-calendars";
 
 type RouteParams = RouteProp<RootStackParamList, "MemberDetail">;
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -26,9 +28,12 @@ export default function MemberDetailScreen() {
   const { getMember, renewSubscription, paySession, attendance, priceSettings, deleteMember, updateMember } = useApp();
 
   const member = getMember(route.params.memberId);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editFirstName, setEditFirstName] = useState("");
+  const [editLastName, setEditLastName] = useState("");
+  const [editMembershipType, setEditMembershipType] = useState<Member["membership_type"]>("regular");
   const [showDateModal, setShowDateModal] = useState(false);
   const [editingField, setEditingField] = useState<"start" | "end">("end");
-  const [dateInput, setDateInput] = useState("");
 
   const isActive = useMemo(() => {
     if (!member?.subscription_end) return false;
@@ -74,17 +79,21 @@ export default function MemberDetailScreen() {
   };
 
   const handlePaySession = () => {
+    const isSenior = member.membership_type === "senior";
+    const amount = isSenior ? priceSettings.session_member_senior : priceSettings.session_member;
+    const rateType = isSenior ? "Senior Member" : "Regular Member";
+    
     Alert.alert(
       "Pay Per Session",
-      `Record session payment of ₱${priceSettings.session_member}?`,
+      `Record ${rateType} session payment of ₱${amount}?`,
       [
         { text: "Cancel", style: "cancel" },
         {
           text: "Confirm",
           onPress: () => {
-            paySession(member.id, true);
+            void paySession(member.id, true, isSenior);
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            Alert.alert("Success", "Session payment recorded!");
+            Alert.alert("Success", `Session payment recorded! Amount: ₱${amount}`);
           },
         },
       ]
@@ -113,35 +122,116 @@ export default function MemberDetailScreen() {
     );
   };
 
-  const handleEditDate = (field: "start" | "end") => {
-    setEditingField(field);
-    const currentDate = field === "start" ? member.subscription_start : member.subscription_end;
-    setDateInput(currentDate || "");
-    setShowDateModal(true);
+  const openEditModal = () => {
+    setEditFirstName(member.firstname);
+    setEditLastName(member.lastname);
+    setEditMembershipType(member.membership_type);
+    setEditModalVisible(true);
   };
 
-  const isValidDate = (dateString: string): boolean => {
-    const regex = /^\d{4}-\d{2}-\d{2}$/;
-    if (!regex.test(dateString)) return false;
-    const date = new Date(dateString);
-    return date instanceof Date && !isNaN(date.getTime());
-  };
-
-  const handleSaveDate = () => {
-    if (!isValidDate(dateInput)) {
-      Alert.alert("Invalid Date", "Please enter a valid date in YYYY-MM-DD format (e.g., 2024-12-31)");
+  const handleSaveEdit = async () => {
+    if (!editFirstName.trim() || !editLastName.trim()) {
+      Alert.alert("Missing Information", "Please enter both first and last name.");
       return;
     }
 
+    try {
+      await updateMember(member.id, {
+        firstname: editFirstName.trim(),
+        lastname: editLastName.trim(),
+        membership_type: editMembershipType,
+      });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert("Success", "Member details updated.");
+      setEditModalVisible(false);
+    } catch (error) {
+      console.error("Failed to update member:", error);
+      Alert.alert("Error", "Failed to update member details.");
+    }
+  };
+
+  const pickImage = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets && result.assets[0]) {
+      const uri = result.assets[0].uri;
+      try {
+        await updateMember(member.id, { photo: uri });
+        Haptics.selectionAsync();
+      } catch (error) {
+        console.error("Failed to update photo:", error);
+        Alert.alert("Error", "Unable to update photo.");
+      }
+    }
+  };
+
+  const takePhoto = async () => {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert("Permission Required", "Camera permission is needed to take photos.");
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets && result.assets[0]) {
+      const uri = result.assets[0].uri;
+      try {
+        await updateMember(member.id, { photo: uri });
+        Haptics.selectionAsync();
+      } catch (error) {
+        console.error("Failed to update photo:", error);
+        Alert.alert("Error", "Unable to update photo.");
+      }
+    }
+  };
+
+  const handleChangePhoto = () => {
+    Alert.alert(
+      "Change Photo",
+      undefined,
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Camera", onPress: takePhoto },
+        { text: "Gallery", onPress: pickImage },
+        { text: "Remove Photo", style: "destructive", onPress: async () => {
+          try {
+            await updateMember(member.id, { photo: "" });
+            Haptics.selectionAsync();
+          } catch (error) {
+            console.error("Failed to remove photo:", error);
+            Alert.alert("Error", "Unable to remove photo.");
+          }
+        } },
+      ],
+      { cancelable: true }
+    );
+  };
+
+  const handleEditDate = (field: "start" | "end") => {
+    setEditingField(field);
+    setShowDateModal(true);
+  };
+
+  const handleDateSelect = (day: string) => {
     if (editingField === "start") {
-      updateMember(member.id, { subscription_start: dateInput });
+      updateMember(member.id, { subscription_start: day });
     } else {
-      updateMember(member.id, { subscription_end: dateInput });
+      updateMember(member.id, { subscription_end: day });
     }
     
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setShowDateModal(false);
-    Alert.alert("Success", `Subscription ${editingField} date updated!`);
+    Alert.alert("Success", `Subscription ${editingField} date updated to ${day}!`);
   };
 
   const handleQuickExtend = (days: number) => {
@@ -169,16 +259,21 @@ export default function MemberDetailScreen() {
         ]}
       >
         <View style={styles.header}>
-          {member.photo ? (
-            <Image source={{ uri: member.photo }} style={styles.photo} />
-          ) : (
-            <View style={[styles.photoPlaceholder, { backgroundColor: theme.backgroundSecondary }]}>
-              <Feather name="user" size={40} color={theme.textSecondary} />
-            </View>
-          )}
+          <Pressable onPress={handleChangePhoto}>
+            {member.photo ? (
+              <Image source={{ uri: member.photo }} style={styles.photo} />
+            ) : (
+              <View style={[styles.photoPlaceholder, { backgroundColor: theme.backgroundSecondary }]}>
+                <Feather name="user" size={40} color={theme.textSecondary} />
+              </View>
+            )}
+          </Pressable>
           <ThemedText type="h2" style={styles.name}>
             {member.firstname} {member.lastname}
           </ThemedText>
+          <Pressable onPress={openEditModal} style={[styles.editNameButton, { marginTop: 8 }]}>
+            <Feather name="edit-2" size={16} color={theme.primary} />
+          </Pressable>
           <View
             style={[
               styles.statusBadge,
@@ -352,42 +447,96 @@ export default function MemberDetailScreen() {
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: theme.backgroundDefault }]}>
             <ThemedText type="h4" style={styles.modalTitle}>
-              Edit {editingField === "start" ? "Start" : "End"} Date
+              Select {editingField === "start" ? "Start" : "End"} Date
             </ThemedText>
             
-            <ThemedText style={[styles.modalHint, { color: theme.textSecondary }]}>
-              Enter date in YYYY-MM-DD format
-            </ThemedText>
-            
-            <TextInput
-              style={[
-                styles.dateInput,
-                { 
-                  backgroundColor: theme.backgroundSecondary,
-                  color: theme.text,
-                  borderColor: theme.border,
+            <Calendar
+              onDayPress={(day) => handleDateSelect(day.dateString)}
+              markedDates={{
+                [editingField === "start" ? (member.subscription_start || new Date().toISOString().split("T")[0]) : (member.subscription_end || new Date().toISOString().split("T")[0])]: {
+                  selected: true,
+                  selectedColor: theme.primary,
                 }
-              ]}
-              value={dateInput}
-              onChangeText={setDateInput}
-              placeholder="YYYY-MM-DD"
-              placeholderTextColor={theme.textSecondary}
-              keyboardType="numbers-and-punctuation"
-              autoFocus
+              }}
+              theme={{
+                backgroundColor: theme.backgroundDefault,
+                calendarBackground: theme.backgroundDefault,
+                textSectionTitleColor: theme.text,
+                selectedDayBackgroundColor: theme.primary,
+                selectedDayTextColor: "#FFFFFF",
+                todayTextColor: theme.primary,
+                dayTextColor: theme.text,
+                textDisabledColor: theme.textSecondary,
+                dotColor: theme.primary,
+                monthTextColor: theme.text,
+                textDayFontSize: 14,
+                textMonthFontSize: 16,
+                textDayHeaderFontSize: 13,
+              }}
             />
             
+            <Pressable
+              onPress={() => setShowDateModal(false)}
+              style={[styles.modalButton, { backgroundColor: theme.backgroundSecondary, marginTop: Spacing.lg }]}
+            >
+              <ThemedText>Close</ThemedText>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={editModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setEditModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: theme.backgroundDefault }]}>
+            <ThemedText type="h4" style={styles.modalTitle}>Edit Member</ThemedText>
+
+            <ThemedText style={[styles.modalHint, { color: theme.textSecondary }]}>First Name</ThemedText>
+            <TextInput
+              style={[styles.dateInput, { backgroundColor: theme.backgroundSecondary, color: theme.text, borderColor: theme.border }]}
+              value={editFirstName}
+              onChangeText={setEditFirstName}
+              placeholder="First name"
+              placeholderTextColor={theme.textSecondary}
+            />
+
+            <ThemedText style={[styles.modalHint, { color: theme.textSecondary }]}>Last Name</ThemedText>
+            <TextInput
+              style={[styles.dateInput, { backgroundColor: theme.backgroundSecondary, color: theme.text, borderColor: theme.border }]}
+              value={editLastName}
+              onChangeText={setEditLastName}
+              placeholder="Last name"
+              placeholderTextColor={theme.textSecondary}
+            />
+
+            <ThemedText style={[styles.modalHint, { color: theme.textSecondary }]}>Membership Type</ThemedText>
+            <View style={{ flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.lg }}>
+              {(['student','regular','senior'] as Member['membership_type'][]).map((t) => (
+                <Pressable
+                  key={t}
+                  onPress={() => setEditMembershipType(t)}
+                  style={[
+                    { paddingVertical: 10, paddingHorizontal: 12, borderRadius: BorderRadius.sm },
+                    editMembershipType === t ? { backgroundColor: theme.primary } : { backgroundColor: theme.backgroundSecondary },
+                  ]}
+                >
+                  <ThemedText style={editMembershipType === t ? { color: '#fff' } : undefined}>
+                    {t.charAt(0).toUpperCase() + t.slice(1)}
+                  </ThemedText>
+                </Pressable>
+              ))}
+            </View>
+
             <View style={styles.modalButtons}>
-              <Pressable
-                onPress={() => setShowDateModal(false)}
-                style={[styles.modalButton, { backgroundColor: theme.backgroundSecondary }]}
-              >
+              <Pressable onPress={() => setEditModalVisible(false)} style={[styles.modalButton, { backgroundColor: theme.backgroundSecondary }]}>
                 <ThemedText>Cancel</ThemedText>
               </Pressable>
-              <Pressable
-                onPress={handleSaveDate}
-                style={[styles.modalButton, { backgroundColor: theme.primary }]}
-              >
-                <ThemedText style={{ color: "#FFFFFF" }}>Save</ThemedText>
+              <Pressable onPress={handleSaveEdit} style={[styles.modalButton, { backgroundColor: theme.primary }]}>
+                <ThemedText style={{ color: '#FFFFFF' }}>Save</ThemedText>
               </Pressable>
             </View>
           </View>
@@ -469,6 +618,9 @@ const styles = StyleSheet.create({
   editButton: {
     padding: Spacing.xs,
     borderRadius: BorderRadius.sm,
+  },
+  editNameButton: {
+    padding: Spacing.xs,
   },
   infoValue: {
     fontWeight: "500",

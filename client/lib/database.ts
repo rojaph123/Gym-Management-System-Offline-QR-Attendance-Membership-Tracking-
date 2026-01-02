@@ -1,8 +1,10 @@
-import { Platform } from 'react-native';
+import { Platform, AppState } from 'react-native';
 
 const DB_NAME = 'powerlift_gym.db';
 
 let db: any = null;
+let isInitializing = false;
+let appStateSubscription: any = null;
 
 interface InMemoryDB {
   members: DBMember[];
@@ -18,12 +20,14 @@ let inMemoryDB: InMemoryDB = {
   sales: [],
   priceSettings: {
     id: 1,
-    membership: 1500,
-    student_monthly: 500,
+    membership: 300,
+    student_monthly: 600,
     regular_monthly: 700,
-    senior_monthly: 400,
-    session_member: 50,
-    session_nonmember: 80,
+    senior_monthly: 560,
+    session_member: 70,
+    session_nonmember: 100,
+    session_member_senior: 40,
+    session_nonmember_senior: 60,
   },
   appSettings: { id: 1, pin_hash: null, is_dark_mode: 1 },
 };
@@ -35,17 +39,53 @@ async function getSQLiteDatabase() {
   }
   
   try {
-    const SQLite = await import('expo-sqlite');
-    if (!db) {
-      console.log('[Database] Initializing SQLite database...');
-      db = await SQLite.openDatabaseAsync(DB_NAME);
-      await initDatabase(db);
-      console.log('[Database] SQLite database initialized successfully');
+    // Prevent multiple concurrent initialization attempts
+    if (isInitializing) {
+      let attempts = 0;
+      while (isInitializing && attempts < 50) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        attempts++;
+      }
     }
+
+    // If database is already open, return it
+    if (db) {
+      // Quick validation - try a simple query
+      try {
+        await db.getFirstAsync('SELECT 1');
+        return db;
+      } catch (error) {
+        console.warn('[Database] Connection lost, attempting to reconnect...');
+        db = null; // Reset and reinitialize
+      }
+    }
+
+    isInitializing = true;
+    console.log('[Database] Initializing SQLite database...');
+    
+    const SQLite = await import('expo-sqlite');
+    db = await SQLite.openDatabaseAsync(DB_NAME);
+    
+    // IMPORTANT: Enable WAL mode for better concurrency and crash recovery
+    try {
+      await db.execAsync('PRAGMA journal_mode = WAL');
+      await db.execAsync('PRAGMA synchronous = NORMAL');
+      console.log('[Database] WAL mode enabled for crash recovery');
+    } catch (pragmaError) {
+      console.warn('[Database] Could not enable WAL mode:', pragmaError);
+    }
+    
+    await initDatabase(db);
+    console.log('[Database] SQLite database initialized successfully');
+    
+    isInitializing = false;
     return db;
   } catch (error) {
+    isInitializing = false;
     console.error('[Database] CRITICAL: Failed to initialize SQLite database on native platform:', error);
-    throw new Error(`Database initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}. Data will not persist!`);
+    // Don't throw - allow app to continue with in-memory mode
+    db = null;
+    return null;
   }
 }
 
@@ -86,12 +126,14 @@ async function initDatabase(database: any): Promise<void> {
 
     CREATE TABLE IF NOT EXISTS price_settings (
       id INTEGER PRIMARY KEY DEFAULT 1,
-      membership REAL DEFAULT 1500,
-      student_monthly REAL DEFAULT 500,
+      membership REAL DEFAULT 300,
+      student_monthly REAL DEFAULT 600,
       regular_monthly REAL DEFAULT 700,
-      senior_monthly REAL DEFAULT 400,
-      session_member REAL DEFAULT 50,
-      session_nonmember REAL DEFAULT 80
+      senior_monthly REAL DEFAULT 560,
+      session_member REAL DEFAULT 70,
+      session_nonmember REAL DEFAULT 100,
+      session_member_senior REAL DEFAULT 50,
+      session_nonmember_senior REAL DEFAULT 80
     );
 
     CREATE TABLE IF NOT EXISTS app_settings (
@@ -101,13 +143,28 @@ async function initDatabase(database: any): Promise<void> {
     );
   `);
 
-  const priceSettings = await database.getFirstAsync('SELECT * FROM price_settings WHERE id = 1');
-  if (!priceSettings) {
-    await database.runAsync(
-      'INSERT INTO price_settings (id, membership, student_monthly, regular_monthly, senior_monthly, session_member, session_nonmember) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [1, 1500, 500, 700, 400, 50, 80]
-    );
+  // Migration: Add missing columns if they don't exist
+  try {
+    const tableInfo = await database.getAllAsync("PRAGMA table_info(price_settings)");
+    const columnNames = tableInfo.map((col: any) => col.name);
+
+    if (!columnNames.includes('session_member_senior')) {
+      console.log('[Database] Migrating: Adding session_member_senior column...');
+      await database.execAsync('ALTER TABLE price_settings ADD COLUMN session_member_senior REAL DEFAULT 50');
+    }
+
+    if (!columnNames.includes('session_nonmember_senior')) {
+      console.log('[Database] Migrating: Adding session_nonmember_senior column...');
+      await database.execAsync('ALTER TABLE price_settings ADD COLUMN session_nonmember_senior REAL DEFAULT 80');
+    }
+  } catch (migrationError) {
+    console.warn('[Database] Migration check failed (table may not exist yet):', migrationError);
   }
+
+  await database.runAsync(
+    'INSERT OR REPLACE INTO price_settings (id, membership, student_monthly, regular_monthly, senior_monthly, session_member, session_nonmember, session_member_senior, session_nonmember_senior) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [1, 300, 600, 700, 560, 70, 100, 50, 80]
+  );
 
   const appSettings = await database.getFirstAsync('SELECT * FROM app_settings WHERE id = 1');
   if (!appSettings) {
@@ -158,6 +215,8 @@ export interface DBPriceSettings {
   senior_monthly: number;
   session_member: number;
   session_nonmember: number;
+  session_member_senior: number;
+  session_nonmember_senior: number;
 }
 
 export interface DBAppSettings {
@@ -197,6 +256,10 @@ return row as DBMember | null;
 }
 
 export async function insertMember(member: Omit<DBMember, 'id'>): Promise<number> {
+  // enforce that a photo is provided for each member
+  if (!member.photo || (typeof member.photo === 'string' && member.photo.trim() === '')) {
+    throw new Error('Member photo is required');
+  }
   const database = await getSQLiteDatabase();
   if (!database) {
     const id = Date.now();
@@ -319,12 +382,14 @@ const settings = row as DBPriceSettings | null;
 
   return settings || {
     id: 1,
-    membership: 1500,
-    student_monthly: 500,
+    membership: 300,
+    student_monthly: 600,
     regular_monthly: 700,
-    senior_monthly: 400,
-    session_member: 50,
-    session_nonmember: 80,
+    senior_monthly: 560,
+    session_member: 70,
+    session_nonmember: 100,
+    session_member_senior: 40,
+    session_nonmember_senior: 60,
   };
 }
 
@@ -384,4 +449,123 @@ export async function savePin(pin: string): Promise<void> {
 export async function verifyPin(pin: string): Promise<boolean> {
   const settings = await getAppSettings();
   return settings.pin_hash === pin;
+}
+/**
+ * Initialize app lifecycle handlers to manage database connection
+ * Call this once in your AppProvider or App component
+ */
+export function initializeAppLifecycleHandlers(): () => void {
+  console.log('[Database] Setting up app lifecycle handlers...');
+  
+  const handleAppStateChange = async (state: string) => {
+    if (state === 'background') {
+      console.log('[Database] App backgrounded - keeping database connection');
+      // Database stays open in background for offline functionality
+    } else if (state === 'active') {
+      console.log('[Database] App foregrounded - validating database connection');
+      // Validate connection when app comes to foreground
+      try {
+        if (db) {
+          await db.getFirstAsync('SELECT 1');
+          console.log('[Database] Connection validated');
+        }
+      } catch (error) {
+        console.warn('[Database] Connection lost during background, will reconnect on next operation');
+        db = null;
+      }
+    }
+  };
+
+  appStateSubscription = AppState.addEventListener('change', handleAppStateChange);
+  
+  // Return cleanup function
+  return () => {
+    if (appStateSubscription) {
+      appStateSubscription.remove();
+    }
+  };
+}
+
+/**
+ * Clear all members from the database
+ */
+export async function clearAllMembers(): Promise<void> {
+  try {
+    const database = await getSQLiteDatabase();
+    if (!database) return;
+    await database.execAsync('DELETE FROM members', []);
+    console.log('[Database] All members cleared');
+  } catch (error) {
+    console.error('[Database] Error clearing members:', error);
+    throw error;
+  }
+}
+
+/**
+ * Clear all attendance records from the database
+ */
+export async function clearAllAttendance(): Promise<void> {
+  try {
+    const database = await getSQLiteDatabase();
+    if (!database) return;
+    await database.execAsync('DELETE FROM attendance', []);
+    console.log('[Database] All attendance records cleared');
+  } catch (error) {
+    console.error('[Database] Error clearing attendance:', error);
+    throw error;
+  }
+}
+
+/**
+ * Clear all sales from the database
+ */
+export async function clearAllSales(): Promise<void> {
+  try {
+    const database = await getSQLiteDatabase();
+    if (!database) return;
+    await database.execAsync('DELETE FROM sales', []);
+    console.log('[Database] All sales cleared');
+  } catch (error) {
+    console.error('[Database] Error clearing sales:', error);
+    throw error;
+  }
+}
+
+/**
+ * Clear all data (members, attendance, sales) from the database
+ */
+export async function clearAllData(): Promise<void> {
+  try {
+    const database = await getSQLiteDatabase();
+    if (!database) return;
+    await database.execAsync('DELETE FROM attendance', []);
+    await database.execAsync('DELETE FROM sales', []);
+    await database.execAsync('DELETE FROM members', []);
+    console.log('[Database] All data cleared');
+  } catch (error) {
+    console.error('[Database] Error clearing all data:', error);
+    throw error;
+  }
+}
+
+/**
+ * Force close and reset the database connection
+ * Use only for testing or emergency recovery
+ */
+export async function resetDatabase(): Promise<void> {
+  try {
+    if (db) {
+      console.log('[Database] Closing database...');
+      try {
+        await db.closeAsync();
+      } catch (e) {
+        console.warn('[Database] Error closing database:', e);
+      }
+      db = null;
+    }
+    isInitializing = false;
+    console.log('[Database] Reset complete - database will reinitialize on next use');
+  } catch (error) {
+    console.error('[Database] Error resetting database:', error);
+  }
 }

@@ -3,7 +3,6 @@ import { StyleSheet } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { KeyboardProvider } from "react-native-keyboard-controller";
 import { StatusBar } from "expo-status-bar";
 
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -21,7 +20,6 @@ export default function App() {
         <QueryClientProvider client={queryClient}>
           <SafeAreaProvider>
             <GestureHandlerRootView style={styles.root}>
-              <KeyboardProvider>
                 
                 {/* Navigation MUST come before SessionManager */}
                 <NavigationContainer>
@@ -32,7 +30,6 @@ export default function App() {
 
                 <StatusBar style="light" />
 
-              </KeyboardProvider>
             </GestureHandlerRootView>
           </SafeAreaProvider>
         </QueryClientProvider>

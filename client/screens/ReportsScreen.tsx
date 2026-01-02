@@ -1,10 +1,11 @@
 import React, { useState, useMemo } from "react";
-import { View, StyleSheet, ScrollView, Pressable, Share, Platform, Alert } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, Share, Platform, Alert, Modal } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system/legacy";
+import { Calendar } from "react-native-calendars";
 
 import { useTheme } from "@/hooks/useTheme";
 import { useApp } from "@/context/AppContext";
@@ -12,15 +13,17 @@ import { ThemedText } from "@/components/ThemedText";
 import { Card } from "@/components/Card";
 import { Spacing, BorderRadius } from "@/constants/theme";
 
-type FilterPeriod = "daily" | "weekly" | "monthly" | "annual";
+type FilterPeriod = "daily" | "weekly" | "monthly" | "annual" | "custom";
 
 const SALE_TYPE_LABELS: Record<string, string> = {
   membership_fee: "Membership Fee",
-  monthly_student: "Monthly (Student)",
-  monthly_regular: "Monthly (Regular)",
-  monthly_senior: "Monthly (Senior)",
-  session_member: "Session (Member)",
-  session_nonmember: "Session (Non-member)",
+  monthly_student: "Monthly Subscription (Student)",
+  monthly_regular: "Monthly Subscription (Regular)",
+  monthly_senior: "Monthly Subscription (Senior)",
+  session_member: "Session Payment (Regular Member)",
+  session_member_senior: "Session Payment (Senior Member)",
+  session_nonmember: "Session Payment (Walk-in)",
+  session_nonmember_senior: "Session Payment (Senior Walk-in)",
 };
 
 export default function ReportsScreen() {
@@ -29,6 +32,10 @@ export default function ReportsScreen() {
   const { sales, attendance, members } = useApp();
   const [filter, setFilter] = useState<FilterPeriod>("daily");
   const [isExporting, setIsExporting] = useState(false);
+  const [showDateRangeModal, setShowDateRangeModal] = useState(false);
+  const [pickingDateType, setPickingDateType] = useState<"start" | "end" | null>(null);
+  const [customStartDate, setCustomStartDate] = useState<string>("");
+  const [customEndDate, setCustomEndDate] = useState<string>("");
 
   const getDateRange = (period: FilterPeriod): { start: string; end: string } => {
     const today = new Date();
@@ -54,6 +61,9 @@ export default function ReportsScreen() {
         yearAgo.setFullYear(yearAgo.getFullYear() - 1);
         start = yearAgo.toISOString().split("T")[0];
         break;
+      case "custom":
+        start = customStartDate || end;
+        return { start, end: customEndDate || end };
       default:
         start = end;
     }
@@ -86,7 +96,7 @@ export default function ReportsScreen() {
       salesByType: byType,
       earningsByDate: byDate,
     };
-  }, [sales, attendance, filter]);
+  }, [sales, attendance, filter, customStartDate, customEndDate]);
 
   const maxEarning = useMemo(() => {
     const values = Object.values(earningsByDate);
@@ -111,9 +121,15 @@ export default function ReportsScreen() {
     return csv;
   };
 
+  const formatDateForDisplay = (dateStr: string): string => {
+    const date = new Date(dateStr + 'T00:00:00');
+    return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  };
+
   const generateSalesReportHTML = (): string => {
     const { start, end } = getDateRange(filter);
     const today = new Date().toLocaleDateString();
+    const filterLabel = filter === 'custom' ? 'Custom Range' : filter.charAt(0).toUpperCase() + filter.slice(1);
     
     return `
 <!DOCTYPE html>
@@ -144,8 +160,8 @@ export default function ReportsScreen() {
 <body>
   <div class="header">
     <h1>POWERLIFT FITNESS GYM</h1>
-    <p>Sales Report - ${filter.charAt(0).toUpperCase() + filter.slice(1)}</p>
-    <p>Period: ${start} to ${end} | Generated: ${today}</p>
+    <p>Sales Report - ${filterLabel}</p>
+    <p>Period: ${formatDateForDisplay(start)} to ${formatDateForDisplay(end)} | Generated: ${today}</p>
   </div>
 
   <div class="summary">
@@ -311,6 +327,16 @@ export default function ReportsScreen() {
     `;
   };
 
+  const handleDateSelect = (day: string) => {
+    if (pickingDateType === "start") {
+      setCustomStartDate(day);
+      setPickingDateType("end");
+    } else if (pickingDateType === "end") {
+      setCustomEndDate(day);
+      setPickingDateType(null);
+    }
+  };
+
   const handleExportCSV = async () => {
     const csv = generateCSV();
     
@@ -455,9 +481,36 @@ export default function ReportsScreen() {
     }
   };
 
+  const handleApplyDateRange = () => {
+    if (!customStartDate || !customEndDate) {
+      Alert.alert("Error", "Please select both start and end dates");
+      return;
+    }
+
+    if (customStartDate > customEndDate) {
+      Alert.alert("Error", "Start date must be before end date");
+      return;
+    }
+
+    setFilter("custom");
+    setShowDateRangeModal(false);
+  };
+
+  const resetDateRange = () => {
+    setCustomStartDate("");
+    setCustomEndDate("");
+    setShowDateRangeModal(false);
+  };
+
   const renderFilterButton = (period: FilterPeriod, label: string) => (
     <Pressable
-      onPress={() => setFilter(period)}
+      onPress={() => {
+        if (period === "custom") {
+          setShowDateRangeModal(true);
+        } else {
+          setFilter(period);
+        }
+      }}
       style={[
         styles.filterButton,
         { borderColor: theme.border },
@@ -471,13 +524,14 @@ export default function ReportsScreen() {
   );
 
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: theme.backgroundRoot }]}
-      contentContainerStyle={[
-        styles.content,
-        { paddingTop: insets.top + Spacing.xl, paddingBottom: insets.bottom + Spacing.xl },
-      ]}
-    >
+    <View style={[styles.container, { backgroundColor: theme.backgroundRoot }]}>
+      <ScrollView
+        style={styles.flex}
+        contentContainerStyle={[
+          styles.content,
+          { paddingTop: insets.top + Spacing.xl, paddingBottom: insets.bottom + Spacing.xl },
+        ]}
+      >
       <ThemedText type="h3" style={styles.title}>
         Reports
       </ThemedText>
@@ -487,6 +541,7 @@ export default function ReportsScreen() {
         {renderFilterButton("weekly", "Weekly")}
         {renderFilterButton("monthly", "Monthly")}
         {renderFilterButton("annual", "Annual")}
+        {renderFilterButton("custom", "Custom")}
       </View>
 
       <View style={styles.summaryRow}>
@@ -606,12 +661,340 @@ export default function ReportsScreen() {
           </Pressable>
         </View>
       </View>
-    </ScrollView>
+      </ScrollView>
+
+      {/* Date Range Selection Modal */}
+      <Modal
+        visible={showDateRangeModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowDateRangeModal(false)}
+      >
+        <View style={[styles.modalOverlay, { backgroundColor: "rgba(0,0,0,0.7)" }]}>
+          <View style={[styles.modalContent, { backgroundColor: theme.backgroundDefault }]}>
+            {!pickingDateType ? (
+              <>
+                <View style={styles.modalHeader}>
+                  <ThemedText type="h4">Custom Date Range</ThemedText>
+                  <Pressable onPress={() => setShowDateRangeModal(false)} style={styles.closeButton}>
+                    <Feather name="x" size={24} color={theme.text} />
+                  </Pressable>
+                </View>
+
+                <View style={styles.dateSelectionContainer}>
+                  <View style={styles.dateSelectionSection}>
+                    <ThemedText style={[styles.sectionLabel, { color: theme.textSecondary }]}>Start Date</ThemedText>
+                    <Pressable 
+                      onPress={() => setPickingDateType("start")}
+                      style={[styles.dateDisplayButton, { borderColor: theme.border, backgroundColor: theme.backgroundSecondary }]}
+                    >
+                      <Feather name="calendar" size={18} color={theme.primary} />
+                      <ThemedText>{customStartDate || "Select start date"}</ThemedText>
+                    </Pressable>
+                  </View>
+
+                  <View style={styles.dateSelectionSection}>
+                    <ThemedText style={[styles.sectionLabel, { color: theme.textSecondary }]}>End Date</ThemedText>
+                    <Pressable 
+                      onPress={() => setPickingDateType("end")}
+                      style={[styles.dateDisplayButton, { borderColor: theme.border, backgroundColor: theme.backgroundSecondary }]}
+                    >
+                      <Feather name="calendar" size={18} color={theme.primary} />
+                      <ThemedText>{customEndDate || "Select end date"}</ThemedText>
+                    </Pressable>
+                  </View>
+                </View>
+
+                <View style={styles.modalButtonContainer}>
+                  <Pressable 
+                    onPress={() => {
+                      setCustomStartDate("");
+                      setCustomEndDate("");
+                      setShowDateRangeModal(false);
+                    }}
+                    style={[styles.modalButton, { backgroundColor: theme.backgroundSecondary }]}
+                  >
+                    <ThemedText>Clear</ThemedText>
+                  </Pressable>
+                  <Pressable 
+                    onPress={() => {
+                      if (customStartDate && customEndDate) {
+                        setFilter("custom");
+                        setShowDateRangeModal(false);
+                      }
+                    }}
+                    style={[styles.modalButton, { backgroundColor: customStartDate && customEndDate ? theme.primary : theme.border }]}
+                    disabled={!customStartDate || !customEndDate}
+                  >
+                    <ThemedText style={customStartDate && customEndDate ? { color: "#FFFFFF" } : undefined}>Apply</ThemedText>
+                  </Pressable>
+                </View>
+              </>
+            ) : (
+              <>
+                <View style={styles.modalHeader}>
+                  <ThemedText type="h4">
+                    Select {pickingDateType === "start" ? "Start" : "End"} Date
+                  </ThemedText>
+                  <Pressable onPress={() => { setPickingDateType(null); setShowDateRangeModal(false); }} style={styles.closeButton}>
+                    <Feather name="x" size={24} color={theme.text} />
+                  </Pressable>
+                </View>
+
+                <Calendar
+                  onDayPress={(day) => handleDateSelect(day.dateString)}
+                  markedDates={{
+                    [pickingDateType === "start" ? (customStartDate || new Date().toISOString().split("T")[0]) : (customEndDate || new Date().toISOString().split("T")[0])]: {
+                      selected: true,
+                      selectedColor: theme.primary,
+                    }
+                  }}
+                  theme={{
+                    backgroundColor: theme.backgroundDefault,
+                    calendarBackground: theme.backgroundDefault,
+                    textSectionTitleColor: theme.text,
+                    selectedDayBackgroundColor: theme.primary,
+                    selectedDayTextColor: "#FFFFFF",
+                    todayTextColor: theme.primary,
+                    dayTextColor: theme.text,
+                    textDisabledColor: theme.textSecondary,
+                    dotColor: theme.primary,
+                    monthTextColor: theme.text,
+                    textDayFontSize: 14,
+                    textMonthFontSize: 16,
+                    textDayHeaderFontSize: 13,
+                  }}
+                />
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+      
+      {/* Date Range Selection Modal */}
+      <Modal
+        visible={showDateRangeModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowDateRangeModal(false)}
+      >
+        <View style={[styles.modalOverlay, { backgroundColor: "rgba(0,0,0,0.7)" }]}>
+          <View style={[styles.modalContent, { backgroundColor: theme.backgroundDefault }]}>
+            {!pickingDateType ? (
+              <>
+                <View style={styles.modalHeader}>
+                  <ThemedText type="h4">Custom Date Range</ThemedText>
+                  <Pressable onPress={() => setShowDateRangeModal(false)} style={styles.closeButton}>
+                    <Feather name="x" size={24} color={theme.text} />
+                  </Pressable>
+                </View>
+
+                <View style={styles.dateSelectionContainer}>
+                  <View style={styles.dateSelectionSection}>
+                    <ThemedText style={[styles.sectionLabel, { color: theme.textSecondary }]}>Start Date</ThemedText>
+                    <Pressable 
+                      onPress={() => setPickingDateType("start")}
+                      style={[styles.dateDisplayButton, { borderColor: theme.border, backgroundColor: theme.backgroundSecondary }]}
+                    >
+                      <Feather name="calendar" size={18} color={theme.primary} />
+                      <ThemedText>{customStartDate || "Select start date"}</ThemedText>
+                    </Pressable>
+                  </View>
+
+                  <View style={styles.dateSelectionSection}>
+                    <ThemedText style={[styles.sectionLabel, { color: theme.textSecondary }]}>End Date</ThemedText>
+                    <Pressable 
+                      onPress={() => setPickingDateType("end")}
+                      style={[styles.dateDisplayButton, { borderColor: theme.border, backgroundColor: theme.backgroundSecondary }]}
+                    >
+                      <Feather name="calendar" size={18} color={theme.primary} />
+                      <ThemedText>{customEndDate || "Select end date"}</ThemedText>
+                    </Pressable>
+                  </View>
+                </View>
+
+                <View style={styles.modalButtonContainer}>
+                  <Pressable 
+                    onPress={() => {
+                      setCustomStartDate("");
+                      setCustomEndDate("");
+                      setShowDateRangeModal(false);
+                    }}
+                    style={[styles.modalButton, { backgroundColor: theme.backgroundSecondary }]}
+                  >
+                    <ThemedText>Clear</ThemedText>
+                  </Pressable>
+                  <Pressable 
+                    onPress={() => {
+                      if (customStartDate && customEndDate) {
+                        setFilter("custom");
+                        setShowDateRangeModal(false);
+                      }
+                    }}
+                    style={[styles.modalButton, { backgroundColor: customStartDate && customEndDate ? theme.primary : theme.border }]}
+                    disabled={!customStartDate || !customEndDate}
+                  >
+                    <ThemedText style={customStartDate && customEndDate ? { color: "#FFFFFF" } : undefined}>Apply</ThemedText>
+                  </Pressable>
+                </View>
+              </>
+            ) : (
+              <>
+                <View style={styles.modalHeader}>
+                  <ThemedText type="h4">
+                    Select {pickingDateType === "start" ? "Start" : "End"} Date
+                  </ThemedText>
+                  <Pressable onPress={() => { setPickingDateType(null); setShowDateRangeModal(false); }} style={styles.closeButton}>
+                    <Feather name="x" size={24} color={theme.text} />
+                  </Pressable>
+                </View>
+
+                <Calendar
+                  onDayPress={(day) => handleDateSelect(day.dateString)}
+                  markedDates={{
+                    [pickingDateType === "start" ? (customStartDate || new Date().toISOString().split("T")[0]) : (customEndDate || new Date().toISOString().split("T")[0])]: {
+                      selected: true,
+                      selectedColor: theme.primary,
+                    }
+                  }}
+                  theme={{
+                    backgroundColor: theme.backgroundDefault,
+                    calendarBackground: theme.backgroundDefault,
+                    textSectionTitleColor: theme.text,
+                    selectedDayBackgroundColor: theme.primary,
+                    selectedDayTextColor: "#FFFFFF",
+                    todayTextColor: theme.primary,
+                    dayTextColor: theme.text,
+                    textDisabledColor: theme.textSecondary,
+                    dotColor: theme.primary,
+                    monthTextColor: theme.text,
+                    textDayFontSize: 14,
+                    textMonthFontSize: 16,
+                    textDayHeaderFontSize: 13,
+                  }}
+                />
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Date Range Selection Modal */}
+      <Modal
+        visible={showDateRangeModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowDateRangeModal(false)}
+      >
+        <View style={[styles.modalOverlay, { backgroundColor: "rgba(0,0,0,0.7)" }]}>
+          <View style={[styles.modalContent, { backgroundColor: theme.backgroundDefault }]}>
+            {!pickingDateType ? (
+              <>
+                <View style={styles.modalHeader}>
+                  <ThemedText type="h4">Custom Date Range</ThemedText>
+                  <Pressable onPress={() => setShowDateRangeModal(false)} style={styles.closeButton}>
+                    <Feather name="x" size={24} color={theme.text} />
+                  </Pressable>
+                </View>
+
+                <View style={styles.dateSelectionContainer}>
+                  <View style={styles.dateSelectionSection}>
+                    <ThemedText style={[styles.sectionLabel, { color: theme.textSecondary }]}>Start Date</ThemedText>
+                    <Pressable 
+                      onPress={() => setPickingDateType("start")}
+                      style={[styles.dateDisplayButton, { borderColor: theme.border, backgroundColor: theme.backgroundSecondary }]}
+                    >
+                      <Feather name="calendar" size={18} color={theme.primary} />
+                      <ThemedText>{customStartDate || "Select start date"}</ThemedText>
+                    </Pressable>
+                  </View>
+
+                  <View style={styles.dateSelectionSection}>
+                    <ThemedText style={[styles.sectionLabel, { color: theme.textSecondary }]}>End Date</ThemedText>
+                    <Pressable 
+                      onPress={() => setPickingDateType("end")}
+                      style={[styles.dateDisplayButton, { borderColor: theme.border, backgroundColor: theme.backgroundSecondary }]}
+                    >
+                      <Feather name="calendar" size={18} color={theme.primary} />
+                      <ThemedText>{customEndDate || "Select end date"}</ThemedText>
+                    </Pressable>
+                  </View>
+                </View>
+
+                <View style={styles.modalButtonContainer}>
+                  <Pressable 
+                    onPress={() => {
+                      setCustomStartDate("");
+                      setCustomEndDate("");
+                      setShowDateRangeModal(false);
+                    }}
+                    style={[styles.modalButton, { backgroundColor: theme.backgroundSecondary }]}
+                  >
+                    <ThemedText>Clear</ThemedText>
+                  </Pressable>
+                  <Pressable 
+                    onPress={() => {
+                      if (customStartDate && customEndDate) {
+                        setFilter("custom");
+                        setShowDateRangeModal(false);
+                      }
+                    }}
+                    style={[styles.modalButton, { backgroundColor: customStartDate && customEndDate ? theme.primary : theme.border }]}
+                    disabled={!customStartDate || !customEndDate}
+                  >
+                    <ThemedText style={customStartDate && customEndDate ? { color: "#FFFFFF" } : undefined}>Apply</ThemedText>
+                  </Pressable>
+                </View>
+              </>
+            ) : (
+              <>
+                <View style={styles.modalHeader}>
+                  <ThemedText type="h4">
+                    Select {pickingDateType === "start" ? "Start" : "End"} Date
+                  </ThemedText>
+                  <Pressable onPress={() => { setPickingDateType(null); setShowDateRangeModal(false); }} style={styles.closeButton}>
+                    <Feather name="x" size={24} color={theme.text} />
+                  </Pressable>
+                </View>
+
+                <Calendar
+                  onDayPress={(day) => handleDateSelect(day.dateString)}
+                  markedDates={{
+                    [pickingDateType === "start" ? (customStartDate || new Date().toISOString().split("T")[0]) : (customEndDate || new Date().toISOString().split("T")[0])]: {
+                      selected: true,
+                      selectedColor: theme.primary,
+                    }
+                  }}
+                  theme={{
+                    backgroundColor: theme.backgroundDefault,
+                    calendarBackground: theme.backgroundDefault,
+                    textSectionTitleColor: theme.text,
+                    selectedDayBackgroundColor: theme.primary,
+                    selectedDayTextColor: "#FFFFFF",
+                    todayTextColor: theme.primary,
+                    dayTextColor: theme.text,
+                    textDisabledColor: theme.textSecondary,
+                    dotColor: theme.primary,
+                    monthTextColor: theme.text,
+                    textDayFontSize: 14,
+                    textMonthFontSize: 16,
+                    textDayHeaderFontSize: 13,
+                  }}
+                />
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
+  },
+  flex: {
     flex: 1,
   },
   content: {
@@ -706,6 +1089,60 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     gap: Spacing.sm,
     minWidth: 150,
+    justifyContent: "center",
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContent: {
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.xl,
+    width: "85%",
+    maxWidth: 400,
+    gap: Spacing.lg,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: Spacing.md,
+  },
+  closeButton: {
+    padding: Spacing.sm,
+  },
+  dateSelectionContainer: {
+    gap: Spacing.lg,
+    marginVertical: Spacing.lg,
+  },
+  dateSelectionSection: {
+    gap: Spacing.sm,
+  },
+  sectionLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  dateDisplayButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderRadius: BorderRadius.md,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    gap: Spacing.md,
+    minHeight: 48,
+  },
+  modalButtonContainer: {
+    flexDirection: "row",
+    gap: Spacing.md,
+    marginTop: Spacing.lg,
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.md,
+    alignItems: "center",
     justifyContent: "center",
   },
 });

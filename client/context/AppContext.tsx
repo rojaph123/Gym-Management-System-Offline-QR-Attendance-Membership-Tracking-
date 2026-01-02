@@ -6,7 +6,7 @@ import React, {
   useEffect,
   ReactNode,
 } from "react";
-import { Appearance, Platform } from "react-native";
+import { Appearance, Platform, AppState as RNAppState } from "react-native";
 import * as SecureStore from "expo-secure-store";
 import * as database from "@/lib/database";
 
@@ -50,6 +50,8 @@ export interface PriceSettings {
   senior_monthly: number;
   session_member: number;
   session_nonmember: number;
+  session_member_senior: number;
+  session_nonmember_senior: number;
 }
 
 interface AppState {
@@ -62,6 +64,7 @@ interface AppState {
   priceSettings: PriceSettings;
   isLoading: boolean;
   timeoutDisabled: boolean; // NEW
+  appWentToBackground: boolean;
 }
 
 interface AppContextType extends AppState {
@@ -70,6 +73,7 @@ interface AppContextType extends AppState {
   toggleTheme: () => void;
   setDarkMode: (value: boolean) => void;
   setTimeoutDisabled: (value: boolean) => void; // NEW
+  setAppWentToBackground: (value: boolean) => void;
   addMember: (
     member: Omit<Member, "id" | "qr_code" | "qr_image_path">
   ) => Promise<Member>;
@@ -85,8 +89,10 @@ interface AppContextType extends AppState {
   getActiveMembers: () => Member[];
   getExpiredMembers: () => Member[];
   renewSubscription: (memberId: number) => Promise<void>;
-  paySession: (memberId: number, isMember: boolean) => Promise<void>;
+  paySession: (memberId: number, isMember: boolean, isSenior?: boolean) => Promise<void>;
   refreshData: () => Promise<void>;
+  backupAllData: () => Promise<string>;
+  restoreFromBackup: (backupData: string) => Promise<void>;
 }
 
 const defaultPriceSettings: PriceSettings = {
@@ -97,6 +103,8 @@ const defaultPriceSettings: PriceSettings = {
   senior_monthly: 400,
   session_member: 50,
   session_nonmember: 80,
+  session_member_senior: 40,
+  session_nonmember_senior: 60,
 };
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -130,6 +138,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     priceSettings: defaultPriceSettings,
     isLoading: true,
     timeoutDisabled: false, // NEW DEFAULT
+    appWentToBackground: false,
   });
 
   const loadDataFromDatabase = useCallback(async () => {
@@ -174,6 +183,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setState((prev) => ({ ...prev, isLoading: false }));
     }
   }, []);
+
+  // Initialize app lifecycle handlers once on mount
+  useEffect(() => {
+    const cleanup = database.initializeAppLifecycleHandlers();
+    console.log('[AppContext] App lifecycle handlers initialized');
+    
+    // Add background state monitoring
+    const appStateSubscription = RNAppState.addEventListener('change', (state) => {
+      if (state === 'background') {
+        console.log('[AppContext] App entered background - marking for PIN re-entry');
+        setState(prev => ({ ...prev, appWentToBackground: true }));
+      } else if (state === 'active') {
+        console.log('[AppContext] App returned to foreground - requiring PIN re-entry');
+        // Logout user to show PIN screen again
+        setState(prev => ({ 
+          ...prev, 
+          isAuthenticated: false,
+          appWentToBackground: false 
+        }));
+        // Trigger a refresh to ensure data is synced
+        loadDataFromDatabase();
+      }
+    });
+    
+    return () => {
+      cleanup();
+      appStateSubscription.remove();
+    };
+  }, [loadDataFromDatabase]);
 
   useEffect(() => {
     loadDataFromDatabase();
@@ -285,7 +323,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
       time: now.toTimeString().split(" ")[0],
     };
 
-    const id = await database.insertAttendance(attendanceData);
+    let id: number;
+    let retries = 0;
+    const maxRetries = 3;
+
+    while (retries < maxRetries) {
+      try {
+        id = await database.insertAttendance(attendanceData);
+        console.log('[AppContext] Attendance recorded successfully:', { id, memberId, time: attendanceData.time });
+        break;
+      } catch (error) {
+        retries++;
+        console.warn(`[AppContext] Failed to record attendance (attempt ${retries}/${maxRetries}):`, error);
+        
+        if (retries >= maxRetries) {
+          console.error('[AppContext] CRITICAL: Failed to record attendance after retries', error);
+          throw error;
+        }
+        
+        // Wait before retrying
+        await new Promise(resolve => setTimeout(resolve, 500 * retries));
+      }
+    }
 
     setState((prev) => ({
       ...prev,
@@ -301,7 +360,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
       note,
     };
 
-    const id = await database.insertSale(saleData);
+    let id: number;
+    let retries = 0;
+    const maxRetries = 3;
+
+    while (retries < maxRetries) {
+      try {
+        id = await database.insertSale(saleData);
+        console.log('[AppContext] Sale inserted successfully:', { id, type, amount });
+        break;
+      } catch (error) {
+        retries++;
+        console.warn(`[AppContext] Failed to insert sale (attempt ${retries}/${maxRetries}):`, error);
+        
+        if (retries >= maxRetries) {
+          console.error('[AppContext] CRITICAL: Failed to insert sale after retries', error);
+          throw error;
+        }
+        
+        // Wait before retrying
+        await new Promise(resolve => setTimeout(resolve, 500 * retries));
+      }
+    }
 
     setState((prev) => ({
       ...prev,
@@ -371,18 +451,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const paySession = useCallback(
-    async (memberId: number, isMember: boolean) => {
+    async (memberId: number, isMember: boolean, isSenior: boolean = false) => {
       const member = state.members.find((m) => m.id === memberId);
 
-      const amount = isMember
-        ? state.priceSettings.session_member
-        : state.priceSettings.session_nonmember;
+      let amount: number;
+      let type: string;
 
-      const type = isMember ? "session_member" : "session_nonmember";
+      if (isMember) {
+        amount = isSenior ? state.priceSettings.session_member_senior : state.priceSettings.session_member;
+        type = isSenior ? "session_member_senior" : "session_member";
+      } else {
+        amount = isSenior ? state.priceSettings.session_nonmember_senior : state.priceSettings.session_nonmember;
+        type = isSenior ? "session_nonmember_senior" : "session_nonmember";
+      }
 
       const note = member
-        ? `Session for ${member.firstname} ${member.lastname}`
-        : "Walk-in session";
+        ? `Session for ${member.firstname} ${member.lastname}${isSenior ? " (Senior)" : ""}`
+        : `Walk-in session${isSenior ? " (Senior)" : ""}`;
 
       await addSale(type, amount, note);
 
@@ -392,6 +477,81 @@ export function AppProvider({ children }: { children: ReactNode }) {
     },
     [state.members, state.priceSettings, addSale, addAttendance]
   );
+
+  const backupAllData = useCallback(async (): Promise<string> => {
+    const backupData = {
+      members: state.members,
+      attendance: state.attendance,
+      sales: state.sales,
+      priceSettings: state.priceSettings,
+      timestamp: new Date().toISOString(),
+      version: "1.0",
+    };
+    return JSON.stringify(backupData);
+  }, [state.members, state.attendance, state.sales, state.priceSettings]);
+
+  const restoreFromBackup = useCallback(async (backupData: string): Promise<void> => {
+    try {
+      const parsed = JSON.parse(backupData);
+      
+      if (!parsed.members || !parsed.attendance || !parsed.sales || !parsed.priceSettings) {
+        throw new Error("Invalid backup file - missing required data");
+      }
+
+      // FIRST: Clear all existing data
+      console.log('[AppContext] Clearing existing data before restore...');
+      try {
+        await database.clearAllData();
+      } catch (clearError) {
+        console.warn('[AppContext] Error clearing data:', clearError);
+        throw new Error('Failed to clear existing data');
+      }
+
+      // SECOND: Restore members
+      console.log('[AppContext] Restoring members...');
+      for (const member of parsed.members) {
+        try {
+          await database.insertMember(member);
+        } catch (e) {
+          console.warn('[AppContext] Failed to restore member:', member.id, e);
+        }
+      }
+
+      // THIRD: Restore attendance
+      console.log('[AppContext] Restoring attendance records...');
+      for (const record of parsed.attendance) {
+        try {
+          await database.insertAttendance(record);
+        } catch (e) {
+          console.warn('[AppContext] Failed to restore attendance record:', record.id, e);
+        }
+      }
+
+      // FOURTH: Restore sales
+      console.log('[AppContext] Restoring sales records...');
+      for (const sale of parsed.sales) {
+        try {
+          await database.insertSale(sale);
+        } catch (e) {
+          console.warn('[AppContext] Failed to restore sale:', sale.id, e);
+        }
+      }
+
+      // FIFTH: Restore price settings
+      console.log('[AppContext] Restoring price settings...');
+      if (parsed.priceSettings) {
+        await database.updatePriceSettingsDB(parsed.priceSettings);
+      }
+
+      console.log('[AppContext] Backup restored successfully');
+      // Reload data from database
+      await new Promise(resolve => setTimeout(resolve, 500)); // Wait a bit for DB operations
+      await loadDataFromDatabase();
+    } catch (error) {
+      console.error("Failed to restore from backup:", error);
+      throw error;
+    }
+  }, [loadDataFromDatabase]);
 
   return (
     <AppContext.Provider
@@ -403,6 +563,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setDarkMode,
         timeoutDisabled: state.timeoutDisabled,
         setTimeoutDisabled, // NEW EXPORT
+        setAppWentToBackground: (value: boolean) => setState(prev => ({ ...prev, appWentToBackground: value })),
         addMember,
         updateMember,
         deleteMember,
@@ -418,6 +579,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         renewSubscription,
         paySession,
         refreshData,
+        backupAllData,
+        restoreFromBackup,
       }}
     >
       {children}

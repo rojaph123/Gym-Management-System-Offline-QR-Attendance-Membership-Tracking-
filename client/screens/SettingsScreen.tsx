@@ -3,6 +3,8 @@ import { View, StyleSheet, TextInput, Pressable, Alert, Switch } from "react-nat
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import { useNavigation, useNavigationState } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
 import { useTheme } from "@/hooks/useTheme";
 import { useApp } from "@/context/AppContext";
@@ -10,10 +12,14 @@ import { ThemedText } from "@/components/ThemedText";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { Card } from "@/components/Card";
 import { Spacing, BorderRadius } from "@/constants/theme";
+import { RootStackParamList } from "@/navigation/RootStackNavigator";
+
+type SettingsScreenNavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 export default function SettingsScreen() {
   const { theme, isDark } = useTheme();
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation<SettingsScreenNavigationProp>();
   const { priceSettings, updatePriceSettings, toggleTheme } = useApp();
 
   const [membership, setMembership] = useState(priceSettings.membership.toString());
@@ -22,6 +28,8 @@ export default function SettingsScreen() {
   const [seniorMonthly, setSeniorMonthly] = useState(priceSettings.senior_monthly.toString());
   const [sessionMember, setSessionMember] = useState(priceSettings.session_member.toString());
   const [sessionNonmember, setSessionNonmember] = useState(priceSettings.session_nonmember.toString());
+  const [sessionMemberSenior, setSessionMemberSenior] = useState(priceSettings.session_member_senior.toString());
+  const [sessionNonmemberSenior, setSessionNonmemberSenior] = useState(priceSettings.session_nonmember_senior.toString());
 
   const handleSave = () => {
     updatePriceSettings({
@@ -31,6 +39,8 @@ export default function SettingsScreen() {
       senior_monthly: parseFloat(seniorMonthly) || 0,
       session_member: parseFloat(sessionMember) || 0,
       session_nonmember: parseFloat(sessionNonmember) || 0,
+      session_member_senior: parseFloat(sessionMemberSenior) || 0,
+      session_nonmember_senior: parseFloat(sessionNonmemberSenior) || 0,
     });
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     Alert.alert("Success", "Price settings saved successfully!");
@@ -101,6 +111,30 @@ export default function SettingsScreen() {
         </View>
       </Card>
 
+      <Pressable
+        onPress={() => navigation.navigate("DataBackup")}
+        style={({ pressed }) => [
+          styles.dataBackupButton,
+          {
+            backgroundColor: theme.backgroundSecondary,
+            opacity: pressed ? 0.7 : 1,
+          },
+        ]}
+      >
+        <View style={styles.dataBackupContent}>
+          <View style={styles.dataBackupIcon}>
+            <Feather name="database" size={24} color={theme.primary} />
+          </View>
+          <View style={styles.dataBackupText}>
+            <ThemedText type="h4">Data Backup & Restore</ThemedText>
+            <ThemedText style={[styles.dataBackupSubtext, { color: theme.textSecondary }]}>
+              Protect your gym data
+            </ThemedText>
+          </View>
+          <Feather name="chevron-right" size={20} color={theme.textSecondary} />
+        </View>
+      </Pressable>
+
       <Card style={styles.section}>
         <View style={styles.sectionHeader}>
           <Feather name="dollar-sign" size={20} color={theme.primary} />
@@ -136,12 +170,48 @@ export default function SettingsScreen() {
           "Rate for registered members without active subscription"
         )}
         {renderPriceField(
+          "Session (Member Senior)",
+          sessionMemberSenior,
+          setSessionMemberSenior,
+          "Rate for senior members without active subscription"
+        )}
+        {renderPriceField(
           "Session (Non-member)",
           sessionNonmember,
           setSessionNonmember,
           "Rate for walk-in customers"
         )}
+        {renderPriceField(
+          "Session (Non-member Senior)",
+          sessionNonmemberSenior,
+          setSessionNonmemberSenior,
+          "Rate for senior walk-in customers"
+        )}
       </Card>
+
+      <Pressable
+        onPress={() => navigation.navigate("DataBackup")}
+        style={({ pressed }) => [
+          styles.dataBackupButton,
+          {
+            backgroundColor: theme.backgroundSecondary,
+            opacity: pressed ? 0.7 : 1,
+          },
+        ]}
+      >
+        <View style={styles.dataBackupContent}>
+          <View style={[styles.dataBackupIcon, { backgroundColor: theme.primary }]}>
+            <Feather name="database" size={24} color="#FFFFFF" />
+          </View>
+          <View style={styles.dataBackupText}>
+            <ThemedText type="h4">Data Backup & Restore</ThemedText>
+            <ThemedText style={[styles.dataBackupSubtext, { color: theme.textSecondary }]}>
+              Protect your gym data
+            </ThemedText>
+          </View>
+          <Feather name="chevron-right" size={20} color={theme.textSecondary} />
+        </View>
+      </Pressable>
 
       <Pressable
         onPress={handleSave}
@@ -246,5 +316,31 @@ const styles = StyleSheet.create({
   },
   footerText: {
     fontSize: 12,
+  },
+  dataBackupButton: {
+    borderRadius: BorderRadius.lg,
+    marginBottom: Spacing.lg,
+    overflow: "hidden",
+  },
+  dataBackupContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.lg,
+    gap: Spacing.md,
+  },
+  dataBackupIcon: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  dataBackupText: {
+    flex: 1,
+  },
+  dataBackupSubtext: {
+    fontSize: 12,
+    marginTop: 4,
   },
 });

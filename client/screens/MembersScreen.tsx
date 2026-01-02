@@ -56,18 +56,34 @@ export default function MembersScreen() {
   const insets = useSafeAreaInsets();
   const { members } = useApp();
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedFilter, setSelectedFilter] = useState<"all" | "expired" | "student" | "regular" | "senior">("all");
 
   const filteredMembers = useMemo(() => {
-    if (!searchQuery.trim()) return members;
+    let result = members;
+
+    // Apply filter
+    if (selectedFilter === "expired") {
+      const today = new Date().toISOString().split("T")[0];
+      result = result.filter((m) => !m.subscription_end || m.subscription_end < today);
+    } else if (selectedFilter === "student") {
+      result = result.filter((m) => m.membership_type === "student");
+    } else if (selectedFilter === "regular") {
+      result = result.filter((m) => m.membership_type === "regular");
+    } else if (selectedFilter === "senior") {
+      result = result.filter((m) => m.membership_type === "senior");
+    }
+
+    // Apply search
+    if (!searchQuery.trim()) return result;
     const query = searchQuery.toLowerCase();
-    return members.filter(
+    return result.filter(
       (m) =>
         m.firstname.toLowerCase().includes(query) ||
         m.lastname.toLowerCase().includes(query) ||
         m.email.toLowerCase().includes(query) ||
         m.phone.includes(query)
     );
-  }, [members, searchQuery]);
+  }, [members, searchQuery, selectedFilter]);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.backgroundRoot }]}>
@@ -101,6 +117,28 @@ export default function MembersScreen() {
               <Feather name="x" size={20} color={theme.textSecondary} />
             </Pressable>
           ) : null}
+        </View>
+
+        <View style={styles.filterContainer}>
+          {(["all", "expired", "student", "regular", "senior"] as const).map((filter) => (
+            <Pressable
+              key={filter}
+              onPress={() => setSelectedFilter(filter)}
+              style={[
+                styles.filterTab,
+                selectedFilter === filter && { backgroundColor: theme.primary },
+              ]}
+            >
+              <ThemedText
+                style={[
+                  styles.filterTabText,
+                  selectedFilter === filter && { color: "#000000ff" },
+                ]}
+              >
+                {filter === "all" ? "All" : filter.charAt(0).toUpperCase() + filter.slice(1)}
+              </ThemedText>
+            </Pressable>
+          ))}
         </View>
       </View>
 
@@ -148,6 +186,22 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     fontSize: 16,
+  },
+  filterContainer: {
+    flexDirection: "row",
+    gap: Spacing.sm,
+    marginTop: Spacing.lg,
+    overflow: "hidden",
+  },
+  filterTab: {
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.full,
+    backgroundColor: "#E5E7EB",
+  },
+  filterTabText: {
+    fontSize: 12,
+    fontWeight: "600",
   },
   listContent: {
     paddingHorizontal: Spacing.lg,

@@ -7,12 +7,14 @@ import PinScreen from "@/screens/PinScreen";
 import MainNavigator from "@/navigation/MainNavigator";
 import MemberDetailScreen from "@/screens/MemberDetailScreen";
 import MemberCardScreen from "@/screens/MemberCardScreen";
+import DataBackupScreen from "@/screens/DataBackupScreen";
 
 export type RootStackParamList = {
   Pin: undefined;
   Main: undefined;
   MemberDetail: { memberId: number };
   MemberCard: { memberId: number };
+  DataBackup: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -50,6 +52,14 @@ export default function RootStackNavigator() {
             options={{
               headerTitle: "Membership Card",
               presentation: "modal",
+            }}
+          />
+          <Stack.Screen
+            name="DataBackup"
+            component={DataBackupScreen}
+            options={{
+              headerTitle: "Data Backup & Restore",
+              presentation: "card",
             }}
           />
         </>

@@ -138,13 +138,18 @@ export default function MemberCardScreen() {
       let imageBase64 = "";
       
       if (viewShotRef.current?.capture) {
+        const capturedUri = await viewShotRef.current.capture();
+        
         if (Platform.OS !== "web") {
-         const base64 = await viewShotRef.current.capture();
-
-          imageBase64 = `data:image/png;base64,${base64}`;
+          // On native platforms, capture returns a file URI
+          // Read the file and convert to base64
+          const fileContent = await FileSystem.readAsStringAsync(capturedUri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          imageBase64 = `data:image/png;base64,${fileContent}`;
         } else {
-          const uri = await viewShotRef.current.capture();
-          imageBase64 = uri;
+          // On web, capturedUri is already a data URI
+          imageBase64 = capturedUri;
         }
       }
 
@@ -166,145 +171,96 @@ export default function MemberCardScreen() {
                 font-family: -apple-system, BlinkMacSystemFont, sans-serif;
               }
               .card-container {
-                max-width: 400px;
+                max-width: 500px;
                 width: 100%;
               }
-              .card {
-                background: #1A1A1A;
+              .card-image {
+                width: 100%;
                 border-radius: 16px;
-                overflow: hidden;
-                border: 2px solid #DC2626;
-              }
-              .header {
-                display: flex;
-                align-items: center;
-                padding: 20px;
-                background: #0F0F0F;
-                gap: 12px;
-              }
-              .logo {
-                width: 50px;
-                height: 50px;
-                border-radius: 8px;
-                object-fit: contain;
-              }
-              .gym-name {
-                color: #FFFFFF;
-                font-size: 20px;
-                font-weight: 700;
-                letter-spacing: 2px;
-                margin: 0;
-              }
-              .gym-subtitle {
-                color: #CCCCCC;
-                font-size: 12px;
-                letter-spacing: 3px;
-                margin: 0;
-              }
-              .body {
-                padding: 20px;
-              }
-              .member-section {
-                display: flex;
-                align-items: center;
-                gap: 16px;
-                margin-bottom: 20px;
-              }
-              .member-photo {
-                width: 70px;
-                height: 70px;
-                border-radius: 35px;
-                border: 2px solid #DC2626;
-                object-fit: cover;
-              }
-              .member-placeholder {
-                width: 70px;
-                height: 70px;
-                border-radius: 35px;
-                background: #333;
-                border: 2px solid #DC2626;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                color: #666;
-                font-size: 30px;
-              }
-              .member-name {
-                color: #FFFFFF;
-                font-size: 18px;
-                font-weight: 600;
-                margin: 0 0 4px 0;
-              }
-              .member-type {
-                color: #DC2626;
-                font-size: 12px;
-                font-weight: 700;
-                letter-spacing: 1px;
-                margin: 0;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
               }
               .qr-section {
                 text-align: center;
-              }
-              .qr-container {
+                margin-top: 30px;
+                padding: 20px;
                 background: #FFFFFF;
-                padding: 12px;
-                border-radius: 8px;
-                display: inline-block;
-                margin-bottom: 12px;
+                border-radius: 12px;
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
               }
-              .qr-code {
-                color: #CCCCCC;
-                font-size: 14px;
-                font-family: monospace;
+              .qr-label {
+                color: #1A1A1A;
+                font-size: 16px;
+                font-weight: 600;
                 letter-spacing: 2px;
+                margin: 0 0 20px 0;
               }
-              .footer {
-                text-align: center;
-                padding: 16px;
-                background: #0F0F0F;
+              .qr-image {
+                display: inline-block;
+                padding: 15px;
+                background: #FFFFFF;
+                border-radius: 12px;
+                border: 2px solid #DC2626;
+                margin-bottom: 15px;
               }
-              .footer-text {
-                color: #999999;
-                font-size: 11px;
+              .qr-image img {
+                display: block;
+                width: 280px;
+                height: 280px;
+              }
+              .qr-code-text {
+                color: #666666;
+                font-size: 13px;
+                font-family: 'Courier New', monospace;
                 letter-spacing: 1px;
+                word-break: break-all;
                 margin: 0;
-              }
-              .card-image {
-                max-width: 100%;
-                border-radius: 16px;
+                margin-top: 15px;
+                padding: 10px;
+                background: #f5f5f5;
+                border-radius: 6px;
               }
             </style>
           </head>
           <body>
             <div class="card-container">
-              ${imageBase64 ? `<img src="${imageBase64}" class="card-image" alt="Membership Card" />` : `
-              <div class="card">
-                <div class="header">
-                  <div class="logo-placeholder" style="width: 50px; height: 50px; background: #333; border-radius: 8px;"></div>
-                  <div>
-                    <p class="gym-name">POWERLIFT</p>
-                    <p class="gym-subtitle">FITNESS GYM</p>
+              ${imageBase64 ? `
+                <img src="${imageBase64}" class="card-image" alt="Membership Card" />
+                <div class="qr-section">
+                  <p class="qr-label">MEMBER ID</p>
+                  <div class="qr-image">
+                    <img src="https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(member.qr_code)}&errorCorrection=H" alt="QR Code" />
                   </div>
+                  <p class="qr-code-text">${member.qr_code}</p>
                 </div>
-                <div class="body">
-                  <div class="member-section">
-                    ${member.photo ? `<img src="${member.photo}" class="member-photo" />` : '<div class="member-placeholder">U</div>'}
+              ` : `
+                <div style="background: #1A1A1A; border-radius: 16px; border: 2px solid #DC2626; overflow: hidden;">
+                  <div style="display: flex; align-items: center; padding: 20px; background: #0F0F0F; gap: 12px;">
+                    <div style="width: 50px; height: 50px; background: #333; border-radius: 8px;"></div>
                     <div>
-                      <p class="member-name">${member.firstname} ${member.lastname}</p>
-                      <p class="member-type">${member.membership_type.toUpperCase()} MEMBER</p>
+                      <p style="color: #FFFFFF; font-size: 20px; font-weight: 700; letter-spacing: 2px; margin: 0;">POWERLIFT</p>
+                      <p style="color: #CCCCCC; font-size: 12px; letter-spacing: 3px; margin: 0;">FITNESS GYM</p>
                     </div>
                   </div>
-                  <div class="qr-section">
-                    <div class="qr-container">
-                      <p style="font-size: 16px; margin: 0;">QR Code: ${member.qr_code}</p>
+                  <div style="padding: 20px;">
+                    <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 20px;">
+                      <div style="width: 70px; height: 70px; border-radius: 35px; background: #333; border: 2px solid #DC2626; display: flex; align-items: center; justify-content: center; color: #666; font-size: 30px;">U</div>
+                      <div>
+                        <p style="color: #FFFFFF; font-size: 18px; font-weight: 600; margin: 0 0 4px 0;">${member.firstname} ${member.lastname}</p>
+                        <p style="color: #DC2626; font-size: 12px; font-weight: 700; letter-spacing: 1px; margin: 0;">${member.membership_type.toUpperCase()} MEMBER</p>
+                      </div>
                     </div>
-                    <p class="qr-code">${member.qr_code}</p>
+                    <div style="text-align: center; margin-top: 25px;">
+                      <p style="color: #FFFFFF; font-size: 14px; font-weight: 600; letter-spacing: 2px; margin: 0 0 15px 0;">MEMBER ID</p>
+                      <div style="background: #FFFFFF; padding: 15px; border-radius: 12px; border: 2px solid #DC2626; display: inline-block; margin-bottom: 15px;">
+                        <img src="https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(member.qr_code)}&errorCorrection=H" alt="QR Code" style="display: block; width: 280px; height: 280px;" />
+                      </div>
+                      <p style="color: #CCCCCC; font-size: 12px; font-family: 'Courier New', monospace; letter-spacing: 1px; margin: 15px 0; padding: 10px; background: #333; border-radius: 6px;">${member.qr_code}</p>
+                    </div>
+                  </div>
+                  <div style="text-align: center; padding: 16px; background: #0F0F0F;">
+                    <p style="color: #999999; font-size: 11px; letter-spacing: 1px; margin: 0;">Present this card upon entry</p>
                   </div>
                 </div>
-                <div class="footer">
-                  <p class="footer-text">Present this card upon entry</p>
-                </div>
-              </div>
               `}
             </div>
           </body>
@@ -399,9 +355,11 @@ export default function MemberCardScreen() {
               <View style={styles.qrContainer}>
                 <QRCode
                   value={member.qr_code}
-                  size={120}
+                  size={200}
                   backgroundColor="#FFFFFF"
                   color="#000000"
+                  ecl="H"
+                  quietZone={10}
                 />
               </View>
               <ThemedText
@@ -562,17 +520,24 @@ const styles = StyleSheet.create({
   },
   qrSection: {
     alignItems: "center",
+    marginTop: Spacing.lg,
   },
   qrContainer: {
-    padding: Spacing.md,
+    padding: Spacing.lg,
     backgroundColor: "#FFFFFF",
     borderRadius: BorderRadius.md,
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.lg,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
   },
   qrCode: {
-    fontSize: 14,
+    fontSize: 12,
     fontFamily: "monospace",
     letterSpacing: 2,
+    fontWeight: "500",
   },
   cardFooter: {
     alignItems: "center",

@@ -80,6 +80,12 @@ export default function RegisterScreen() {
       return;
     }
 
+    if (!photo) {
+      Alert.alert("Photo Required", "Please take or select a photo before registering.");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      return;
+    }
+
     const today = new Date();
     let subscriptionStart: string | null = null;
     let subscriptionEnd: string | null = null;
@@ -303,7 +309,11 @@ export default function RegisterScreen() {
 
       <Pressable
         onPress={handleRegister}
-        style={[styles.registerButton, { backgroundColor: theme.primary }]}
+        disabled={!photo}
+        style={[
+          styles.registerButton,
+          { backgroundColor: theme.primary, opacity: photo ? 1 : 0.6 },
+        ]}
       >
         <Feather name="user-plus" size={20} color="#FFFFFF" />
         <ThemedText style={styles.registerButtonText}>Register Member</ThemedText>
