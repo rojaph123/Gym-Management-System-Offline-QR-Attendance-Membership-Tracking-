@@ -189,27 +189,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const cleanup = database.initializeAppLifecycleHandlers();
     console.log('[AppContext] App lifecycle handlers initialized');
     
-    // Add background state monitoring
-    const appStateSubscription = RNAppState.addEventListener('change', (state) => {
-      if (state === 'background') {
-        console.log('[AppContext] App entered background - marking for PIN re-entry');
-        setState(prev => ({ ...prev, appWentToBackground: true }));
-      } else if (state === 'active') {
-        console.log('[AppContext] App returned to foreground - requiring PIN re-entry');
-        // Logout user to show PIN screen again
-        setState(prev => ({ 
-          ...prev, 
-          isAuthenticated: false,
-          appWentToBackground: false 
-        }));
-        // Trigger a refresh to ensure data is synced
-        loadDataFromDatabase();
-      }
-    });
+    // NOTE: AppState background/foreground handling is now done in SessionManager
+    // to allow route-based exceptions for photo operations.
+    // Do not handle it here - let SessionManager manage authentication on background return.
     
     return () => {
       cleanup();
-      appStateSubscription.remove();
     };
   }, [loadDataFromDatabase]);
 
