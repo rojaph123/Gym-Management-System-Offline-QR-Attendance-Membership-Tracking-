@@ -9,6 +9,15 @@ import { useApp } from "@/context/AppContext";
 const IDLE_TIME = 2 * 60 * 1000; // 2 minutes
 const COUNTDOWN_SECONDS = 10;
 
+// Global ref to track if user is currently in a photo picker operation
+// This persists across navigation changes
+const isInPhotoPickerRef = { current: false };
+
+export function setIsInPhotoPicker(value: boolean) {
+  isInPhotoPickerRef.current = value;
+  console.log('[SessionManager] Photo picker operation:', value);
+}
+
 export default function SessionManager({ children }: { children: ReactNode }) {
   const { isAuthenticated, setAuthenticated, timeoutDisabled } = useApp();
   const navigation = useNavigation();
@@ -90,6 +99,13 @@ export default function SessionManager({ children }: { children: ReactNode }) {
         setShowModal(false);
       } else if (state === "active") {
         // App is coming back to foreground
+        
+        // Check if we're in a photo picker operation (persists across route changes)
+        if (isInPhotoPickerRef.current) {
+          console.log('[SessionManager] In photo picker operation - skipping PIN screen');
+          return;
+        }
+        
         // Get current route name from navigation state
         const state = (navigation as any).getState?.();
         const routes = state?.routes || [];

@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import * as Haptics from "expo-haptics";
+import { setIsInPhotoPicker } from "@/components/SessionManager";
 
 import { useTheme } from "@/hooks/useTheme";
 import { useApp } from "@/context/AppContext";
@@ -30,15 +31,20 @@ export default function RegisterScreen() {
   const [registrationOption, setRegistrationOption] = useState<RegistrationOption>("member_only");
 
   const pickImage = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8,
-    });
+    setIsInPhotoPicker(true);
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
 
-    if (!result.canceled && result.assets[0]) {
-      setPhoto(result.assets[0].uri);
+      if (!result.canceled && result.assets[0]) {
+        setPhoto(result.assets[0].uri);
+      }
+    } finally {
+      setIsInPhotoPicker(false);
     }
   };
 
@@ -49,14 +55,19 @@ export default function RegisterScreen() {
       return;
     }
 
-    const result = await ImagePicker.launchCameraAsync({
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8,
-    });
+    setIsInPhotoPicker(true);
+    try {
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
 
-    if (!result.canceled && result.assets[0]) {
-      setPhoto(result.assets[0].uri);
+      if (!result.canceled && result.assets[0]) {
+        setPhoto(result.assets[0].uri);
+      }
+    } finally {
+      setIsInPhotoPicker(false);
     }
   };
 

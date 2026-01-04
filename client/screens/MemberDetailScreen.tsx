@@ -7,6 +7,7 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import { useHeaderHeight } from "@react-navigation/elements";
+import { setIsInPhotoPicker } from "@/components/SessionManager";
 
 import { useTheme } from "@/hooks/useTheme";
 import { useApp, Member } from "@/context/AppContext";
@@ -151,22 +152,27 @@ export default function MemberDetailScreen() {
   };
 
   const pickImage = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8,
-    });
+    setIsInPhotoPicker(true);
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
 
-    if (!result.canceled && result.assets && result.assets[0]) {
-      const uri = result.assets[0].uri;
-      try {
-        await updateMember(member.id, { photo: uri });
-        Haptics.selectionAsync();
-      } catch (error) {
-        console.error("Failed to update photo:", error);
-        Alert.alert("Error", "Unable to update photo.");
+      if (!result.canceled && result.assets && result.assets[0]) {
+        const uri = result.assets[0].uri;
+        try {
+          await updateMember(member.id, { photo: uri });
+          Haptics.selectionAsync();
+        } catch (error) {
+          console.error("Failed to update photo:", error);
+          Alert.alert("Error", "Unable to update photo.");
+        }
       }
+    } finally {
+      setIsInPhotoPicker(false);
     }
   };
 
@@ -177,21 +183,26 @@ export default function MemberDetailScreen() {
       return;
     }
 
-    const result = await ImagePicker.launchCameraAsync({
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8,
-    });
+    setIsInPhotoPicker(true);
+    try {
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
 
-    if (!result.canceled && result.assets && result.assets[0]) {
-      const uri = result.assets[0].uri;
-      try {
-        await updateMember(member.id, { photo: uri });
-        Haptics.selectionAsync();
-      } catch (error) {
-        console.error("Failed to update photo:", error);
-        Alert.alert("Error", "Unable to update photo.");
+      if (!result.canceled && result.assets && result.assets[0]) {
+        const uri = result.assets[0].uri;
+        try {
+          await updateMember(member.id, { photo: uri });
+          Haptics.selectionAsync();
+        } catch (error) {
+          console.error("Failed to update photo:", error);
+          Alert.alert("Error", "Unable to update photo.");
+        }
       }
+    } finally {
+      setIsInPhotoPicker(false);
     }
   };
 
