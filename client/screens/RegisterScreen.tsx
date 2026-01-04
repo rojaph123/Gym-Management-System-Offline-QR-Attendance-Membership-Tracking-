@@ -4,7 +4,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import * as Haptics from "expo-haptics";
-import { setIsPhotoOperationScreen } from "@/components/SessionManager";
 
 import { useTheme } from "@/hooks/useTheme";
 import { useApp } from "@/context/AppContext";
@@ -19,21 +18,6 @@ export default function RegisterScreen() {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
   const { addMember, addSale, priceSettings, addAttendance } = useApp();
-
-  // Mark this screen as a photo operation screen when mounted
-  useEffect(() => {
-    setIsPhotoOperationScreen(true);
-    console.log('[RegisterScreen] Set photo operation screen: true');
-    
-    let timer: NodeJS.Timeout;
-    return () => {
-      // Delay reset to ensure flag persists through background→active transitions
-      timer = setTimeout(() => {
-        setIsPhotoOperationScreen(false);
-        console.log('[RegisterScreen] Reset photo operation screen: false');
-      }, 500);
-    };
-  }, []);
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");

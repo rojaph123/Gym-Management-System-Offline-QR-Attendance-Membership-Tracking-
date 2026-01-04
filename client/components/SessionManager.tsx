@@ -9,15 +9,6 @@ import { useApp } from "@/context/AppContext";
 const IDLE_TIME = 2 * 60 * 1000; // 2 minutes
 const COUNTDOWN_SECONDS = 10;
 
-// Global ref to track if user is on a screen that allows photo operations
-// If true, skip PIN requirement on background transitions
-const isPhotoOperationScreenRef = { current: false };
-
-export function setIsPhotoOperationScreen(value: boolean) {
-  isPhotoOperationScreenRef.current = value;
-  console.log('[SessionManager] Is photo operation screen:', value);
-}
-
 export default function SessionManager({ children }: { children: ReactNode }) {
   const { isAuthenticated, setAuthenticated, timeoutDisabled } = useApp();
   const navigation = useNavigation();
@@ -91,7 +82,6 @@ export default function SessionManager({ children }: { children: ReactNode }) {
 
     const subscription = AppState.addEventListener("change", (state) => {
       console.log('[SessionManager] AppState changed:', state);
-      console.log('[SessionManager] Is photo operation screen:', isPhotoOperationScreenRef.current);
       
       if (state === "background") {
         // App is going to background - stop the idle timer
@@ -100,8 +90,16 @@ export default function SessionManager({ children }: { children: ReactNode }) {
         setShowModal(false);
       } else if (state === "active") {
         // App is coming back to foreground
-        // Skip logout if user is on a photo operation screen (Register or MemberDetail)
-        if (isPhotoOperationScreenRef.current) {
+        // Get current route name from navigation state
+        const state = (navigation as any).getState?.();
+        const routes = state?.routes || [];
+        const currentRoute = routes[routes.length - 1];
+        const currentRouteName = currentRoute?.name || '';
+        
+        console.log('[SessionManager] Current route:', currentRouteName);
+        
+        // Skip PIN if user is on photo operation screens (Register or MemberDetail)
+        if (currentRouteName === 'Register' || currentRouteName === 'MemberDetail') {
           console.log('[SessionManager] User is on photo operation screen - skipping PIN screen');
           return;
         }
@@ -116,7 +114,7 @@ export default function SessionManager({ children }: { children: ReactNode }) {
     return () => {
       subscription.remove();
     };
-  }, [isAuthenticated, safeLogout]);
+  }, [isAuthenticated, safeLogout, navigation]);
 
   /** Start timer when logged in */
   useEffect(() => {

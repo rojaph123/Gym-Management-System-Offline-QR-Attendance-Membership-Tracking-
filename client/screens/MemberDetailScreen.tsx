@@ -7,7 +7,6 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import { useHeaderHeight } from "@react-navigation/elements";
-import { setIsPhotoOperationScreen } from "@/components/SessionManager";
 
 import { useTheme } from "@/hooks/useTheme";
 import { useApp, Member } from "@/context/AppContext";
@@ -35,21 +34,6 @@ export default function MemberDetailScreen() {
   const [editMembershipType, setEditMembershipType] = useState<Member["membership_type"]>("regular");
   const [showDateModal, setShowDateModal] = useState(false);
   const [editingField, setEditingField] = useState<"start" | "end">("end");
-
-  // Mark this screen as a photo operation screen
-  useEffect(() => {
-    setIsPhotoOperationScreen(true);
-    console.log('[MemberDetailScreen] Set photo operation screen: true');
-    
-    let timer: NodeJS.Timeout;
-    return () => {
-      // Delay reset to ensure flag persists through background→active transitions
-      timer = setTimeout(() => {
-        setIsPhotoOperationScreen(false);
-        console.log('[MemberDetailScreen] Reset photo operation screen: false');
-      }, 500);
-    };
-  }, []);
 
   const isActive = useMemo(() => {
     if (!member?.subscription_end) return false;
