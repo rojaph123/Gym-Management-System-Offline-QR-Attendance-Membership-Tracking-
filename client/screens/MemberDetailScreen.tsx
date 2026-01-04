@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useLayoutEffect } from "react";
 import { View, StyleSheet, ScrollView, Pressable, Image, Alert, TextInput, Modal, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRoute, useNavigation, RouteProp } from "@react-navigation/native";
@@ -35,6 +35,20 @@ export default function MemberDetailScreen() {
   const [editMembershipType, setEditMembershipType] = useState<Member["membership_type"]>("regular");
   const [showDateModal, setShowDateModal] = useState(false);
   const [editingField, setEditingField] = useState<"start" | "end">("end");
+
+  // Configure header with back button
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerLeft: () => (
+        <Pressable
+          onPress={() => navigation.goBack()}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Feather name="chevron-left" size={24} color={theme.text} />
+        </Pressable>
+      ),
+    });
+  }, [navigation, theme.text]);
 
   const isActive = useMemo(() => {
     if (!member?.subscription_end) return false;

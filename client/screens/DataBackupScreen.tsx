@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useLayoutEffect } from "react";
 import {
   View,
   StyleSheet,
@@ -46,6 +46,20 @@ export default function DataBackupScreen() {
   const [restoreProgress, setRestoreProgress] = useState(0);
   const [showProgressModal, setShowProgressModal] = useState(false);
   const [progressMessage, setProgressMessage] = useState("");
+
+  // Configure header with back button
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerLeft: () => (
+        <Pressable
+          onPress={() => navigation.goBack()}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Feather name="chevron-left" size={24} color={theme.text} />
+        </Pressable>
+      ),
+    });
+  }, [navigation, theme.text]);
 
   useEffect(() => {
     loadLastBackupDate();
