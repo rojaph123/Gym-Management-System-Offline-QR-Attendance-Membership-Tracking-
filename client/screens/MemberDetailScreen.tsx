@@ -25,7 +25,7 @@ export default function MemberDetailScreen() {
   const navigation = useNavigation<NavigationProp>();
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
-  const { getMember, renewSubscription, paySession, attendance, priceSettings, deleteMember, updateMember } = useApp();
+  const { getMember, renewSubscription, paySession, attendance, priceSettings, deleteMember, updateMember, setTimeoutDisabled } = useApp();
 
   const member = getMember(route.params.memberId);
   const [editModalVisible, setEditModalVisible] = useState(false);
@@ -151,12 +151,18 @@ export default function MemberDetailScreen() {
   };
 
   const pickImage = async () => {
+    // Disable timeout during image picker
+    setTimeoutDisabled(true);
+
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.8,
     });
+
+    // Re-enable timeout after picker closes
+    setTimeoutDisabled(false);
 
     if (!result.canceled && result.assets && result.assets[0]) {
       const uri = result.assets[0].uri;
@@ -177,11 +183,17 @@ export default function MemberDetailScreen() {
       return;
     }
 
+    // Disable timeout during camera capture
+    setTimeoutDisabled(true);
+
     const result = await ImagePicker.launchCameraAsync({
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.8,
     });
+
+    // Re-enable timeout after camera closes
+    setTimeoutDisabled(false);
 
     if (!result.canceled && result.assets && result.assets[0]) {
       const uri = result.assets[0].uri;
