@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, ReactNode, useCallback } from "react";
 import { AppState, Pressable, Text, View, Modal, PanResponder, GestureResponderEvent } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useNavigation, CommonActions } from "@react-navigation/native";
 import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
@@ -10,12 +11,19 @@ const IDLE_TIME = 2 * 60 * 1000; // 2 minutes
 const COUNTDOWN_SECONDS = 10;
 
 // Global ref to track if user is currently in a photo picker operation
-// This persists across navigation changes
+// This persists across navigation changes (in-memory) and we also
+// set a persistent AsyncStorage key so the flag survives process
+// restarts during camera intent on some Android devices.
 const isInPhotoPickerRef = { current: false };
 
 export function setIsInPhotoPicker(value: boolean) {
   isInPhotoPickerRef.current = value;
-  console.log('[SessionManager] Photo picker operation:', value);
+  console.log('[SessionManager] Photo picker operation (ref):', value);
+  if (value) {
+    AsyncStorage.setItem("photo_picker_active", "1").catch(() => {});
+  } else {
+    AsyncStorage.removeItem("photo_picker_active").catch(() => {});
+  }
 }
 
 export default function SessionManager({ children }: { children: ReactNode }) {
@@ -89,9 +97,9 @@ export default function SessionManager({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!isAuthenticated) return;
 
-    const subscription = AppState.addEventListener("change", (state) => {
+    const subscription = AppState.addEventListener("change", async (state) => {
       console.log('[SessionManager] AppState changed:', state);
-      
+
       if (state === "background") {
         // App is going to background - stop the idle timer
         if (idleTimer.current) clearTimeout(idleTimer.current);
@@ -99,27 +107,40 @@ export default function SessionManager({ children }: { children: ReactNode }) {
         setShowModal(false);
       } else if (state === "active") {
         // App is coming back to foreground
-        
-        // Check if we're in a photo picker operation (persists across route changes)
+
+        // First, check in-memory ref
         if (isInPhotoPickerRef.current) {
-          console.log('[SessionManager] In photo picker operation - skipping PIN screen');
+          console.log('[SessionManager] In photo picker operation (ref) - skipping PIN screen');
           return;
         }
-        
+
+        // Next, check persistent AsyncStorage flag in case the process was restarted
+        try {
+          const persistent = await AsyncStorage.getItem("photo_picker_active");
+          if (persistent === "1") {
+            console.log('[SessionManager] In photo picker operation (storage) - skipping PIN screen');
+            // clear it so future transitions behave normally
+            await AsyncStorage.removeItem("photo_picker_active");
+            return;
+          }
+        } catch (e) {
+          // ignore storage errors and continue
+        }
+
         // Get current route name from navigation state
         const state = (navigation as any).getState?.();
         const routes = state?.routes || [];
         const currentRoute = routes[routes.length - 1];
         const currentRouteName = currentRoute?.name || '';
-        
+
         console.log('[SessionManager] Current route:', currentRouteName);
-        
+
         // Skip PIN if user is on photo operation screens (Register or MemberDetail)
         if (currentRouteName === 'Register' || currentRouteName === 'MemberDetail') {
           console.log('[SessionManager] User is on photo operation screen - skipping PIN screen');
           return;
         }
-        
+
         // Otherwise require re-authentication
         console.log('[SessionManager] App returned from background - forcing PIN screen');
         safeLogout();
